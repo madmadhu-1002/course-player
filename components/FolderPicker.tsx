@@ -9,6 +9,8 @@ type FoldersResponse = {
   parent: string | null;
   folders: FolderEntry[];
   drives: string[];
+  shortcuts?: { label: string; path: string }[];
+  notice?: string;
   error?: string;
 };
 
@@ -173,6 +175,27 @@ export default function FolderPicker({ onClose, onSelect }: Props) {
             </p>
           )}
 
+          {data?.notice && (
+            <p className="m-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+              {data.notice}
+            </p>
+          )}
+
+          {data && (data.shortcuts?.length ?? 0) > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5 p-1">
+              {data.shortcuts!.map((shortcut) => (
+                <button
+                  key={shortcut.path}
+                  onClick={() => navigate(shortcut.path)}
+                  className="rounded-lg border border-neutral-300 px-2.5 py-1 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                  title={shortcut.path}
+                >
+                  {shortcut.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {data && data.drives.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-1.5 p-1">
               {data.drives.map((drive) => (
@@ -187,7 +210,7 @@ export default function FolderPicker({ onClose, onSelect }: Props) {
             </div>
           )}
 
-          {data && data.folders.length === 0 && !loading && (
+          {data && data.folders.length === 0 && !loading && !data.notice && (
             <p className="p-4 text-sm text-neutral-500">No subfolders here.</p>
           )}
 

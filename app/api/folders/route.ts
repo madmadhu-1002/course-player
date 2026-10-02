@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import os from "os";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { getCourseDir } from "@/lib/config";
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".m4v", ".mov", ".mkv"]);
 
 type FolderEntry = { name: string; path: string; videos: number };
+type Shortcut = { label: string; path: string };
 
 function naturalCompare(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
@@ -18,6 +20,14 @@ async function isDir(p: string): Promise<boolean> {
     return (await fs.stat(p)).isDirectory();
   } catch {
     return false;
+  }
+}
+
+async function probeDir(p: string): Promise<"dir" | "denied" | "missing"> {
+  try {
+    return (await fs.stat(p)).isDirectory() ? "dir" : "missing";
+  } catch (err) {
+    return isDenied(err) ? "denied" : "missing";
   }
 }
 
@@ -41,8 +51,49 @@ async function listDrives(): Promise<string[]> {
   return drives;
 }
 
+function isDenied(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return code === "EACCES" || code === "EPERM";
+}
+
+function isTermux(): boolean {
+  return !!process.env.PREFIX?.includes("com.termux");
+}
+
+async function listShortcuts(): Promise<Shortcut[]> {
+  const candidates: Shortcut[] = [
+    { label: "Home", path: os.homedir() },
+    { label: "App files", path: process.cwd() },
+  ];
+
+  if (process.platform !== "win32") {
+    candidates.push(
+      { label: "Shared storage", path: path.join(os.homedir(), "storage", "shared") },
+      { label: "Internal storage", path: "/storage/emulated/0" },
+      { label: "SD card", path: "/sdcard" },
+      { label: "Root", path: "/" },
+    );
+  }
+
+  const seen = new Set<string>();
+  const shortcuts: Shortcut[] = [];
+  for (const candidate of candidates) {
+    if (!(await isDir(candidate.path))) continue;
+    let key = candidate.path;
+    try {
+      key = await fs.realpath(/*turbopackIgnore: true*/ candidate.path);
+    } catch {
+      // keep the original path when realpath fails
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    shortcuts.push(candidate);
+  }
+  return shortcuts;
+}
+
 const MAX_SCAN_DEPTH = 4;
-const SCAN_BUDGET = 400;
+const SCAN_BUDGET = 150;
 
 async function countVideos(
   dir: string,
@@ -79,7 +130,7 @@ export async function GET(req: NextRequest) {
   let dir: string;
   if (raw && raw.trim()) {
     const requested = path.resolve(raw);
-    if (!(await isDir(requested))) {
+    if ((await probeDir(requested)) === "missing") {
       return NextResponse.json({ error: `Folder not found: ${raw}` }, { status: 404 });
     }
     dir = requested;
@@ -87,25 +138,36 @@ export async function GET(req: NextRequest) {
     dir = (await firstExistingDir(getCourseDir())) || process.cwd();
   }
 
+  const up = path.dirname(dir);
+  const parent = up === dir ? null : up;
+  const shortcuts = await listShortcuts();
+
+  let folders: FolderEntry[] = [];
+  let notice: string | undefined;
+
   try {
     const entries = await fs.readdir(/*turbopackIgnore: true*/ dir, { withFileTypes: true });
     const dirs = entries.filter((e) => e.isDirectory());
 
-    const folders: FolderEntry[] = await Promise.all(
+    folders = await Promise.all(
       dirs.map(async (e) => {
         const child = path.join(/*turbopackIgnore: true*/ dir, e.name);
         return { name: e.name, path: child, videos: await countVideos(child, { left: SCAN_BUDGET }) };
       }),
     );
     folders.sort((a, b) => naturalCompare(a.name, b.name));
-
-    const up = path.dirname(dir);
-    const parent = up === dir ? null : up;
-    const drives = parent === null ? await listDrives() : [];
-
-    return NextResponse.json({ path: dir, parent, folders, drives });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to read folder";
-    return NextResponse.json({ error: message }, { status: 500 });
+    if (!isDenied(err)) {
+      const message = err instanceof Error ? err.message : "Failed to read folder";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+    notice = "This folder can’t be read (permission denied).";
+    if (isTermux()) {
+      notice += " Run termux-setup-storage in Termux, then allow access to shared storage.";
+    }
   }
+
+  const drives = parent === null ? await listDrives() : [];
+
+  return NextResponse.json({ path: dir, parent, folders, drives, shortcuts, notice });
 }

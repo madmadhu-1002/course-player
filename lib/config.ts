@@ -1,7 +1,11 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 
-const DEFAULT_COURSE_DIR = "C:\\Users\\ih20162\\Desktop\\mahidhar\\flud";
+const DEFAULT_COURSE_DIR =
+  process.platform === "win32"
+    ? "C:\\Users\\ih20162\\Desktop\\mahidhar\\flud"
+    : os.homedir();
 
 const ROOT_FILE = path.join(process.cwd(), ".course-root.json");
 

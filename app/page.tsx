@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import Player from "@/components/Player";
+import FolderPicker from "@/components/FolderPicker";
 import type { Course, Library } from "@/lib/types";
 import { loadStore, saveStore, Store } from "@/lib/progress";
 
@@ -58,43 +59,76 @@ export default function Home() {
   );
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(readInitialTheme);
 
-  useEffect(() => {
-    fetch("/api/course")
-      .then((r) => r.json())
-      .then((data: Library & { error?: string }) => {
-        if (data.error) throw new Error(data.error);
-        setLibrary(data);
+  const refreshLibrary = useCallback(async (): Promise<string | null> => {
+    try {
+      const data = (await fetch("/api/course").then((r) => r.json())) as Library & {
+        error?: string;
+      };
+      if (data.error) throw new Error(data.error);
+      setLibrary(data);
+      setError(null);
 
-        const stored = readInitialCourseId();
-        const last = readInitialStore().last;
-        let course = stored ? data.courses.find((c) => c.id === stored) : undefined;
-        if (!course && last) course = data.courses.find((c) => inCourse(c, last));
-        if (!course) {
-          course = data.courses.find((c) => c.totalVideos > 0) ?? data.courses[0];
-        }
-        if (!course) {
-          setCurrentId(null);
-          return;
-        }
+      const stored = readInitialCourseId();
+      const last = readInitialStore().last;
+      let course = stored ? data.courses.find((c) => c.id === stored) : undefined;
+      if (!course && last) course = data.courses.find((c) => inCourse(c, last));
+      if (!course) {
+        course = data.courses.find((c) => c.totalVideos > 0) ?? data.courses[0];
+      }
+      if (!course) {
+        setCourseId(null);
+        setCurrentId(null);
+        return null;
+      }
 
-        setCourseId(course.id);
-        try {
-          window.localStorage.setItem(COURSE_KEY, course.id);
-        } catch {
-          // ignore
-        }
-        setCurrentId((prev) =>
-          inCourse(course, prev)
-            ? prev
-            : last && inCourse(course, last)
-              ? last
-              : firstVideo(course)?.id ?? null,
-        );
-      })
-      .catch((e: Error) => setError(e.message));
+      setCourseId(course.id);
+      try {
+        window.localStorage.setItem(COURSE_KEY, course.id);
+      } catch {
+        // ignore
+      }
+      setCurrentId((prev) =>
+        inCourse(course, prev)
+          ? prev
+          : last && inCourse(course, last)
+            ? last
+            : firstVideo(course)?.id ?? null,
+      );
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : "Failed to load library";
+    }
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      refreshLibrary().then((err) => {
+        if (err) setError(err);
+      });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [refreshLibrary]);
+
+  const selectFolder = useCallback(
+    async (path: string): Promise<string | null> => {
+      try {
+        const res = await fetch("/api/root", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) return data.error || "Could not change folder";
+      } catch (e) {
+        return e instanceof Error ? e.message : "Could not change folder";
+      }
+      return refreshLibrary();
+    },
+    [refreshLibrary],
+  );
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -210,6 +244,10 @@ export default function Home() {
     persist({ videos, last: currentId });
   }, [persist, course, store, currentId]);
 
+  const picker = pickerOpen ? (
+    <FolderPicker onClose={() => setPickerOpen(false)} onSelect={selectFolder} />
+  ) : null;
+
   if (error) {
     return (
       <main className="flex min-h-screen items-center justify-center p-6">
@@ -217,19 +255,36 @@ export default function Home() {
           <h1 className="text-lg font-semibold text-red-600">Could not load library</h1>
           <p className="mt-2 text-sm text-neutral-500">{error}</p>
           <p className="mt-4 text-xs text-neutral-400">
-            Check COURSE_DIR in lib/config.ts (or the COURSE_DIR env variable).
+            Point the player at another folder, or fix COURSE_DIR in lib/config.ts (or the
+            COURSE_DIR env variable).
           </p>
+          <button
+            onClick={() => setPickerOpen(true)}
+            className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            Choose a folder…
+          </button>
         </div>
+        {picker}
       </main>
     );
   }
 
   if (!library || !course) {
     return (
-      <main className="flex min-h-screen items-center justify-center">
-        <p className="animate-pulse text-neutral-500">
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6">
+        <p className={library ? "text-neutral-500" : "animate-pulse text-neutral-500"}>
           {library ? "No course folders found." : "Scanning library…"}
         </p>
+        {library && (
+          <button
+            onClick={() => setPickerOpen(true)}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            Choose a folder…
+          </button>
+        )}
+        {picker}
       </main>
     );
   }
@@ -249,6 +304,13 @@ export default function Home() {
           {currentIndex + 1} / {flatVideos.length}
         </span>
         <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setPickerOpen(true)}
+            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+            title="Change course folder"
+          >
+            Folders
+          </button>
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
@@ -273,6 +335,10 @@ export default function Home() {
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
           onClearProgress={clearProgress}
+          onChangeFolder={() => {
+            setSidebarOpen(false);
+            setPickerOpen(true);
+          }}
         />
 
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
@@ -306,6 +372,7 @@ export default function Home() {
           )}
         </main>
       </div>
+      {picker}
     </div>
   );
 }

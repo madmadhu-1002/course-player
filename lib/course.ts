@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { COURSE_DIR, languageFromFilename } from "./config";
+import { getCourseDir, languageFromFilename } from "./config";
 import type { Course, Library, Section, Subtitle, Video } from "./types";
 
 export type { Course, Library, Section, Subtitle, Video };
@@ -78,7 +78,7 @@ async function walkSections(
 }
 
 async function scanCourse(courseId: string): Promise<Course> {
-  const courseAbs = path.resolve(COURSE_DIR, courseId);
+  const courseAbs = path.resolve(getCourseDir(), courseId);
   const sections: Section[] = [];
   await walkSections(courseId, courseAbs, "", sections);
   sections.sort((a, b) => naturalCompare(a.id, b.id));
@@ -91,7 +91,8 @@ async function scanCourse(courseId: string): Promise<Course> {
 }
 
 export async function scanLibrary(): Promise<Library> {
-  const entries = await fs.readdir(COURSE_DIR, { withFileTypes: true });
+  const root = getCourseDir();
+  const entries = await fs.readdir(root, { withFileTypes: true });
 
   const rootVideoFiles = entries
     .filter((e) => e.isFile() && isVideo(e.name))
@@ -105,7 +106,7 @@ export async function scanLibrary(): Promise<Library> {
 
   if (rootVideoFiles.length > 0) {
     const rootCourse = await scanCourse(".");
-    rootCourse.title = path.basename(COURSE_DIR);
+    rootCourse.title = path.basename(root);
     courses.push(rootCourse);
   }
 
@@ -114,17 +115,18 @@ export async function scanLibrary(): Promise<Library> {
   }
 
   return {
-    root: toPosix(COURSE_DIR),
+    root: toPosix(root),
     courses,
     totalVideos: courses.reduce((sum, c) => sum + c.totalVideos, 0),
   };
 }
 
 export function resolveCoursePath(relativePath: string): string {
+  const root = getCourseDir();
   const normalized = relativePath.replace(/\//g, path.sep);
-  const full = path.resolve(COURSE_DIR, normalized);
-  const rootWithSep = COURSE_DIR.endsWith(path.sep) ? COURSE_DIR : COURSE_DIR + path.sep;
-  if (full !== COURSE_DIR && !full.startsWith(rootWithSep)) {
+  const full = path.resolve(root, normalized);
+  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+  if (full !== root && !full.startsWith(rootWithSep)) {
     throw new Error("Path escapes course directory");
   }
   return full;

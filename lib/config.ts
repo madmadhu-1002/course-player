@@ -1,8 +1,39 @@
+import fs from "fs";
 import path from "path";
 
 const DEFAULT_COURSE_DIR = "C:\\Users\\ih20162\\Desktop\\mahidhar\\flud";
 
-export const COURSE_DIR = path.resolve(/* turbopackIgnore: true */ process.env.COURSE_DIR || DEFAULT_COURSE_DIR);
+const ROOT_FILE = path.join(process.cwd(), ".course-root.json");
+
+function readStoredRoot(): string | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(ROOT_FILE, "utf8"));
+    if (typeof parsed?.dir === "string" && parsed.dir.trim()) {
+      return path.resolve(parsed.dir);
+    }
+  } catch {
+    // no stored root or unreadable file
+  }
+  return null;
+}
+
+export function getCourseDir(): string {
+  const stored = readStoredRoot();
+  if (stored) return stored;
+  return path.resolve(/* turbopackIgnore: true */ process.env.COURSE_DIR || DEFAULT_COURSE_DIR);
+}
+
+export function setStoredRoot(dir: string | null): void {
+  if (dir === null) {
+    try {
+      fs.unlinkSync(ROOT_FILE);
+    } catch {
+      // nothing to remove
+    }
+    return;
+  }
+  fs.writeFileSync(ROOT_FILE, JSON.stringify({ dir: path.resolve(dir) }, null, 2));
+}
 
 const LANGUAGE_NAMES: Record<string, string> = {
   english: "English",

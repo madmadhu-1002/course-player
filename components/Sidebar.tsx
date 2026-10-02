@@ -17,6 +17,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onClearProgress: () => void;
+  onChangeFolder: () => void;
 };
 
 export default function Sidebar({
@@ -32,6 +33,7 @@ export default function Sidebar({
   open,
   onClose,
   onClearProgress,
+  onChangeFolder,
 }: Props) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -202,15 +204,24 @@ export default function Sidebar({
           })}
         </nav>
 
-        <div className="flex shrink-0 items-center justify-between border-t border-neutral-200 px-3 py-2 text-xs text-neutral-500 dark:border-neutral-800">
-          <span className="truncate pr-2">{course.title}</span>
-          <button
-            onClick={onClearProgress}
-            className="shrink-0 underline hover:text-red-500"
-            title="Clear watched history"
-          >
-            Reset
-          </button>
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-neutral-200 px-3 py-2 text-xs text-neutral-500 dark:border-neutral-800">
+          <span className="truncate">{course.title}</span>
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              onClick={onChangeFolder}
+              className="underline hover:text-blue-500"
+              title="Browse and change folders"
+            >
+              Folders
+            </button>
+            <button
+              onClick={onClearProgress}
+              className="underline hover:text-red-500"
+              title="Clear watched history"
+            >
+              Reset
+            </button>
+          </div>
         </div>
       </aside>
     </>

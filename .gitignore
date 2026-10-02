@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# course folder chosen in the app
+.course-root.json
+
 # vercel
 .vercel
 
